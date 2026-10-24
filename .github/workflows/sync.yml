@@ -1,0 +1,14 @@
+name: Sync FB Ads
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # chạy mỗi 30 phút
+  workflow_dispatch: # cho phép bấm chạy tay
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Sync API
+        run: |
+          curl -X GET "https://nex-ads-hvltjt6aq-nex-25b4.vercel.app/api/cron/sync?secret=${{ secrets.CRON_SECRET }}"
