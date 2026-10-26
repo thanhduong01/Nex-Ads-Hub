@@ -9,6 +9,8 @@ import {
   Calculator,
   Pencil,
   Trash2,
+  RefreshCw,
+  Download,
 } from 'lucide-react';
 import { Button, Modal, SearchInput } from './ui.jsx';
 import { api } from '../lib/api.js';
@@ -19,7 +21,15 @@ import {
   campaignColumnDefinitions,
   validateCampaignColumns,
   validateCampaignMetric,
+  campaignColumn,
+  isCampaignMetric,
 } from '../lib/campaignColumns.js';
+import {
+  metaCatalog,
+  metaColumn,
+  META_INSIGHT_FIELDS,
+  META_CATALOG_SOURCE,
+} from '../lib/metaMetricCatalog.js';
 const fresh = () => structuredClone(DEFAULT_CAMPAIGN_COLUMNS);
 const DEMO_KEY = 'ads_hub_demo_campaign_columns';
 
@@ -76,26 +86,93 @@ export function useCampaignColumns(demo) {
   return { config, loading, issue, save };
 }
 
-export default function CampaignColumns({ config, onSave, onClose, demo, issue }) {
+export default function CampaignColumns({
+  config,
+  onSave,
+  onClose,
+  demo,
+  issue,
+  discovered = [],
+  onDiscover,
+}) {
   const [draft, setDraft] = useState(() => structuredClone(config)),
     [query, setQuery] = useState(''),
     [editor, setEditor] = useState(null),
     [error, setError] = useState(''),
-    [saving, setSaving] = useState(false);
+    [saving, setSaving] = useState(false),
+    [groupFilter, setGroupFilter] = useState('all'),
+    [detected, setDetected] = useState([]),
+    [scanning, setScanning] = useState(false),
+    [scanNote, setScanNote] = useState(''),
+    [eventDraft, setEventDraft] = useState({ field: 'actions', action: '' });
   const selected = campaignColumnDefinitions(draft);
   const available = [
     ...Object.entries(CAMPAIGN_COLUMNS).map(([key, value]) => ({ key, ...value })),
+    ...metaCatalog([
+      ...discovered,
+      ...detected,
+      ...draft.selected_columns,
+      ...draft.custom_metrics.flatMap((m) => [m.left, m.right]),
+    ]),
     ...draft.custom_metrics.map((metric) => ({
       key: metric.id,
       name: metric.name,
+      type: metric.type,
       group: 'Chỉ số tùy chỉnh',
     })),
   ];
-  const matching = available.filter((column) =>
-    `${column.name} ${column.key} ${draft.custom_names[column.key] || ''}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const metricKeys = [...new Set([...CAMPAIGN_METRIC_KEYS, ...available.map((c) => c.key)])].filter(
+    isCampaignMetric,
   );
+  const matching = available.filter(
+    (column) =>
+      (groupFilter === 'all' || groupFilter === column.group) &&
+      `${column.name} ${column.key} ${draft.custom_names[column.key] || ''}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+  );
+  async function scan() {
+    setScanning(true);
+    setScanNote('');
+    try {
+      const result = await onDiscover();
+      setDetected((value) => [...new Set([...value, ...result.discovered])]);
+      setScanNote(
+        `Tìm thấy ${result.discovered.length} cột sự kiện trong khoảng ngày đang chọn.${result.issues.length ? ` ${result.issues.length} lỗi khi đọc Meta: ${result.issues[0].message}` : ''}`,
+      );
+    } catch (error) {
+      setScanNote(error.message);
+    } finally {
+      setScanning(false);
+    }
+  }
+  function downloadCatalog() {
+    const cell = (value) =>
+      `"${String(value ?? '')
+        .replace(/^[=+@-]/, "'$&")
+        .replaceAll('"', '""')}"`;
+    const lines = [
+      ['Nhóm', 'Tên chỉ số', 'Mã cột', 'Định dạng', 'Trường Meta', 'Loại sự kiện'],
+      ...available.map((column) => [
+        column.group,
+        column.name,
+        column.key,
+        column.type,
+        column.field || '',
+        column.action || '',
+      ]),
+    ];
+    const url = URL.createObjectURL(
+      new Blob(['\uFEFF' + lines.map((row) => row.map(cell).join(',')).join('\r\n')], {
+        type: 'text/csv;charset=utf-8',
+      }),
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'meta-ads-metric-catalog.csv';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
   function toggle(key) {
     setDraft((value) => ({
       ...value,
@@ -179,12 +256,51 @@ export default function CampaignColumns({ config, onSave, onClose, demo, issue }
           {issue} Bảng đang dùng bố cục mặc định; bạn có thể khôi phục và lưu lại tại đây.
         </p>
       )}
+      <div className="column-meta-summary">
+        <div className="column-meta-heading">
+          <strong>{Object.keys(META_INSIGHT_FIELDS).length} trường Meta Ads Insights</strong>
+          {onDiscover && (
+            <Button busy={scanning} disabled={demo || saving} onClick={scan}>
+              {!scanning && <RefreshCw size={15} />}{' '}
+              {scanning ? 'Đang quét sự kiện…' : 'Quét sự kiện & custom conversion'}
+            </Button>
+          )}
+        </div>
+        <details>
+          <summary>Phạm vi hỗ trợ & nguồn chỉ số</summary>
+          <p>
+            Đầy đủ danh mục trường từ SDK Meta, kèm cột sự kiện riêng. Các cột Meta đọc trực tiếp
+            theo toàn bộ khoảng ngày; khả dụng tùy phiên bản API, quyền, mục tiêu và cấp báo cáo.
+            Không có dữ liệu sẽ hiển thị “—”.
+          </p>
+          <a href={META_CATALOG_SOURCE} target="_blank" rel="noreferrer">
+            Danh mục chính thức của Meta ↗
+          </a>
+        </details>
+        {demo && <small>Dữ liệu mẫu chỉ xem danh mục, không gọi Meta.</small>}
+        {scanNote && <p role="status">{scanNote}</p>}
+      </div>
       <div className="column-controls">
         <SearchInput
           value={query}
           onChange={setQuery}
           placeholder="Tìm thông tin hoặc chỉ số Meta…"
         />
+        <select
+          aria-label="Nhóm chỉ số"
+          value={groupFilter}
+          onChange={(event) => setGroupFilter(event.target.value)}
+        >
+          <option value="all">Tất cả nhóm ({available.length})</option>
+          {[...new Set(available.map((column) => column.group))].map((group) => (
+            <option value={group} key={group}>
+              {group}
+            </option>
+          ))}
+        </select>
+        <Button onClick={downloadCatalog}>
+          <Download size={15} /> Tải danh mục
+        </Button>
         <Button
           disabled={saving}
           onClick={() => {
@@ -199,9 +315,7 @@ export default function CampaignColumns({ config, onSave, onClose, demo, issue }
       <div className="columns-layout">
         <section className="columns-catalog" aria-label="Thông tin và chỉ số có sẵn">
           <h3>Thông tin & chỉ số có sẵn</h3>
-          <p>
-            Các chỉ số từ dữ liệu Meta đã đồng bộ và các tỷ lệ tính lại theo khoảng ngày đang lọc.
-          </p>
+          <p>{matching.length} cột phù hợp. Chọn chỉ số muốn hiển thị.</p>
           {[...new Set(matching.map((column) => column.group))].map((group) => (
             <div className="column-group" key={group}>
               <h4>{group}</h4>
@@ -227,6 +341,50 @@ export default function CampaignColumns({ config, onSave, onClose, demo, issue }
           <Button disabled={saving} onClick={newMetric}>
             <Plus size={15} /> Tạo chỉ số công thức
           </Button>
+          <details className="column-event-builder">
+            <summary>Thêm sự kiện / custom conversion theo mã</summary>
+            <label className="field">
+              Nhóm dữ liệu
+              <select
+                aria-label="Nhóm dữ liệu sự kiện"
+                value={eventDraft.field}
+                onChange={(event) => setEventDraft({ ...eventDraft, field: event.target.value })}
+              >
+                {Object.entries(META_INSIGHT_FIELDS)
+                  .filter(([, type]) => type.includes('AdsActionStats'))
+                  .map(([field]) => (
+                    <option key={field} value={field}>
+                      {metaColumn(`meta:${field}`).name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              Mã action_type
+              <input
+                aria-label="Mã action_type"
+                placeholder="offsite_conversion.custom.123456"
+                value={eventDraft.action}
+                maxLength={180}
+                onChange={(event) => setEventDraft({ ...eventDraft, action: event.target.value })}
+              />
+            </label>
+            <Button
+              disabled={saving}
+              onClick={() => {
+                const key = `meta:${eventDraft.field}:${eventDraft.action.trim()}`;
+                if (!metaColumn(key)) {
+                  setError('Mã sự kiện không hợp lệ. Dùng action_type từ Meta.');
+                  return;
+                }
+                setDetected((value) => [...new Set([...value, key])]);
+                if (!draft.selected_columns.includes(key)) toggle(key);
+                setError('');
+              }}
+            >
+              <Plus size={15} /> Thêm cột sự kiện
+            </Button>
+          </details>
         </section>
         <section className="columns-selected" aria-label="Cột được chọn và tên hiển thị">
           <h3>{selected.length} cột đang chọn</h3>
@@ -237,12 +395,12 @@ export default function CampaignColumns({ config, onSave, onClose, demo, issue }
                 <span className="column-position">{index + 1}</span>
                 <label>
                   <span className="sr-only">
-                    Tên hiển thị {CAMPAIGN_COLUMNS[column.key]?.name || column.name}
+                    Tên hiển thị {campaignColumn(column.key)?.name || column.name}
                   </span>
                   <input
                     maxLength={60}
                     value={draft.custom_names[column.key] ?? column.name}
-                    placeholder={CAMPAIGN_COLUMNS[column.key]?.name || 'Tên chỉ số'}
+                    placeholder={campaignColumn(column.key)?.name || 'Tên chỉ số'}
                     disabled={saving}
                     onChange={(event) => rename(column.key, event.target.value)}
                   />
@@ -361,9 +519,10 @@ export default function CampaignColumns({ config, onSave, onClose, demo, issue }
                 value={editor.left}
                 onChange={(event) => setEditor({ ...editor, left: event.target.value })}
               >
-                {CAMPAIGN_METRIC_KEYS.map((key) => (
+                {metricKeys.map((key) => (
                   <option value={key} key={key}>
-                    {CAMPAIGN_COLUMNS[key].name}
+                    {key.startsWith('meta:') ? 'Meta · ' : ''}
+                    {campaignColumn(key).name}
                   </option>
                 ))}
               </select>
@@ -412,9 +571,10 @@ export default function CampaignColumns({ config, onSave, onClose, demo, issue }
                   value={editor.right}
                   onChange={(event) => setEditor({ ...editor, right: event.target.value })}
                 >
-                  {CAMPAIGN_METRIC_KEYS.map((key) => (
+                  {metricKeys.map((key) => (
                     <option value={key} key={key}>
-                      {CAMPAIGN_COLUMNS[key].name}
+                      {key.startsWith('meta:') ? 'Meta · ' : ''}
+                      {campaignColumn(key).name}
                     </option>
                   ))}
                 </select>
@@ -422,8 +582,8 @@ export default function CampaignColumns({ config, onSave, onClose, demo, issue }
             </label>
           </div>
           <p className="formula-preview">
-            {CAMPAIGN_COLUMNS[editor.left]?.name} {editor.operator}{' '}
-            {editor.rightType === 'constant' ? editor.right : CAMPAIGN_COLUMNS[editor.right]?.name}
+            {campaignColumn(editor.left)?.name} {editor.operator}{' '}
+            {editor.rightType === 'constant' ? editor.right : campaignColumn(editor.right)?.name}
           </p>
           <p className="field-hint">
             Chia cho 0 hiển thị “—”. Định dạng % chỉ thêm ký hiệu %, không tự nhân 100. Mỗi công

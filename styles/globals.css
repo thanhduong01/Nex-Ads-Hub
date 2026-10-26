@@ -2709,6 +2709,107 @@ td small {
 .modal.campaign-columns-modal {
   max-width: 1000px;
 }
+.column-meta-summary,
+.campaign-meta-status {
+  padding: 16px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #1b2230;
+  font-size: var(--font-small);
+  line-height: 1.7;
+}
+.column-meta-summary p,
+.campaign-meta-status p {
+  color: var(--muted);
+  margin: 6px 0 10px;
+}
+.column-meta-summary a {
+  color: #c5bdff;
+  margin-right: 18px;
+}
+.column-meta-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.column-meta-summary details > summary {
+  cursor: pointer;
+  color: #c5bdff;
+}
+.column-meta-summary > small {
+  color: var(--muted);
+}
+.campaign-columns-modal .columns-catalog,
+.campaign-columns-modal .columns-selected {
+  max-height: clamp(180px, calc(90vh - 430px), 420px);
+}
+.column-controls > select {
+  max-width: 300px;
+  font-size: var(--font-small);
+}
+.column-event-builder {
+  margin-top: 18px;
+  font-size: var(--font-small);
+}
+.column-event-builder summary,
+.meta-detail summary,
+.meta-issues summary {
+  cursor: pointer;
+  color: #c5bdff;
+}
+.column-event-builder .field {
+  margin-top: 12px;
+}
+.column-event-builder input,
+.column-event-builder select {
+  width: 100%;
+  min-width: 0;
+  font-size: var(--font-small);
+}
+.campaign-meta-status {
+  margin: 0 20px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.campaign-meta-status > div {
+  flex: 1;
+  min-width: 200px;
+}
+.meta-issues {
+  width: 100%;
+}
+.meta-issues ul {
+  max-height: 240px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding-left: 22px;
+  margin-top: 10px;
+}
+.meta-detail {
+  white-space: normal;
+  min-width: 160px;
+}
+.meta-detail pre {
+  max-width: 440px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  margin-top: 8px;
+  background: #0d131e;
+  font-size: var(--font-caption);
+}
+.campaign-table th button:disabled {
+  cursor: default;
+}
 .columns-layout {
   display: grid;
   grid-template-columns: minmax(200px, 0.9fr) minmax(0, 1.3fr);

@@ -21,6 +21,7 @@ import Pagination, { usePagination } from './Pagination.jsx';
 import { aggregate, rangeFor, shiftDate, format } from '../lib/metrics.js';
 import MetaAIInsights from './MetaAIInsights.jsx';
 import CampaignColumns, { useCampaignColumns } from './CampaignColumns.jsx';
+import useMetaCampaignMetrics from './useMetaCampaignMetrics.js';
 import {
   buildCampaignRows,
   campaignColumnDefinitions,
@@ -68,6 +69,16 @@ function CampaignCell({ column, row }) {
       </Badge>
     );
   if (column.key === 'daily_budget' && value == null) return 'Theo nhóm QC';
+  if (column.type === 'json' || (value !== null && typeof value === 'object'))
+    return value == null ? (
+      '—'
+    ) : (
+      <details className="meta-detail">
+        <summary>Xem dữ liệu chi tiết{Array.isArray(value) ? ` (${value.length})` : ''}</summary>
+        <pre>{JSON.stringify(value, null, 2)}</pre>
+      </details>
+    );
+  if (column.source === 'meta' && typeof value === 'string') return <span>{value}</span>;
   if (column.type === 'text')
     return (
       <span className={['id', 'account_id', 'bm_id'].includes(column.key) ? 'mono' : ''}>
@@ -115,23 +126,38 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
     status,
   );
   const selected = rows.filter((r) => r.date >= range.since && r.date <= range.until);
+  const metaMetrics = useMetaCampaignMetrics({
+    config: columnConfig,
+    accounts,
+    range,
+    campaign: camp,
+    demo,
+    revision: data.loadedAt,
+  });
   const stats = aggregate(selected);
   const days = Math.round((new Date(range.until) - new Date(range.since)) / 86400000) + 1;
   const previous = aggregate(
     rows.filter((r) => r.date >= shiftDate(range.since, -days) && r.date < range.since),
   );
-  const effectiveSort = columnConfig.selected_columns.includes(sort.key)
+  const effectiveSort = visibleColumns.some(
+    (column) => column.key === sort.key && column.type !== 'json',
+  )
     ? sort
     : {
         key: columnConfig.selected_columns.includes('spend')
           ? 'spend'
-          : columnConfig.selected_columns[0],
+          : visibleColumns.find((column) => column.type !== 'json')?.key || 'name',
         dir: -1,
       };
   const table = sortCampaignRows(
-    buildCampaignRows(campaigns, selected, data.accounts, data.bms, columnConfig).filter(
-      (campaign) => campaign.name.toLowerCase().includes(query.toLowerCase()),
-    ),
+    buildCampaignRows(
+      campaigns,
+      selected,
+      data.accounts,
+      data.bms,
+      columnConfig,
+      metaMetrics.rows,
+    ).filter((campaign) => campaign.name.toLowerCase().includes(query.toLowerCase())),
     effectiveSort,
   );
   const pagination = usePagination(
@@ -317,6 +343,47 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
             {columnsIssue} Đang hiển thị bố cục mặc định; mở Tùy chỉnh cột để lưu lại.
           </div>
         )}
+        {metaMetrics.fields.length > 0 && (
+          <div className="campaign-meta-status">
+            <div>
+              <strong>
+                {demo
+                  ? 'Cột Meta trực tiếp chưa có số liệu trong demo'
+                  : metaMetrics.loading
+                    ? `Đang đọc chỉ số Meta: ${metaMetrics.done}/${metaMetrics.total} lượt…`
+                    : 'Chỉ số Meta theo toàn kỳ đang lọc'}
+              </strong>
+              <p>
+                {demo
+                  ? 'Đăng nhập workspace thật để đọc dữ liệu.'
+                  : `Các cột Meta dùng dữ liệu trực tiếp từ API. Cột không có dữ liệu hoặc không được hỗ trợ hiển thị “—”.${metaMetrics.fetchedAt ? ` Đã đọc lúc ${new Date(metaMetrics.fetchedAt).toLocaleTimeString('vi-VN')}.` : ''}`}
+              </p>
+            </div>
+            {!demo && (
+              <Button busy={metaMetrics.loading} onClick={metaMetrics.refresh}>
+                <RefreshCw size={15} /> Tải lại chỉ số Meta
+              </Button>
+            )}
+            {metaMetrics.issues.length > 0 && (
+              <details className="meta-issues">
+                <summary>
+                  {metaMetrics.issues.length} trường hoặc tài khoản chưa đọc được · Xem lý do
+                </summary>
+                <ul>
+                  {metaMetrics.issues.map((issue, index) => (
+                    <li key={index}>
+                      <strong>
+                        {issue.account}
+                        {issue.field ? ` · ${issue.field}` : ''}
+                      </strong>
+                      : {issue.message}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
         <div className="table-scroll">
           <table id="campaigns-table" className="campaign-table">
             <thead>
@@ -335,6 +402,7 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
                   >
                     <button
                       type="button"
+                      disabled={column.type === 'json'}
                       title={
                         column.left
                           ? `${column.left} ${column.operator} ${column.right}`
@@ -418,6 +486,8 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
           config={columnConfig}
           demo={demo}
           issue={columnsIssue}
+          discovered={metaMetrics.discovered}
+          onDiscover={metaMetrics.discover}
           onClose={() => setColumnsOpen(false)}
           onSave={async (next) => {
             await saveColumns(next);
