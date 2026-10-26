@@ -20,6 +20,8 @@ import {
   X,
   Mail,
   LockKeyhole,
+  Eye,
+  EyeOff,
   Layers3,
   ExternalLink,
   RefreshCw,
@@ -80,6 +82,7 @@ function Logo() {
 function Login({ onLogin, onDemo, expired }) {
   const [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
+    [showPassword, setShowPassword] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(expired || '');
   async function submit(e) {
@@ -164,7 +167,8 @@ function Login({ onLogin, onDemo, expired }) {
               <div className="input-with-icon">
                 <LockKeyhole size={16} />
                 <input
-                  type="password"
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   required
                   minLength={6}
@@ -172,6 +176,21 @@ function Login({ onLogin, onDemo, expired }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  aria-controls="login-password"
+                  aria-pressed={showPassword}
+                  title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                >
+                  {showPassword ? (
+                    <EyeOff size={19} aria-hidden="true" />
+                  ) : (
+                    <Eye size={19} aria-hidden="true" />
+                  )}
+                </button>
               </div>
             </label>
             {error && (

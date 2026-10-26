@@ -2659,6 +2659,22 @@ td small {
 .input-with-icon input:focus-visible {
   outline: 0;
 }
+.input-with-icon .password-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  flex-shrink: 0;
+  border-radius: 6px;
+  color: #a2aec1;
+}
+.input-with-icon .password-toggle:hover {
+  color: var(--text);
+  background: #252e3d;
+}
 .login-form .btn.full {
   font-size: var(--font-small);
 }
