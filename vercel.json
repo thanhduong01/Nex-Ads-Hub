@@ -1,0 +1,10 @@
+{
+  "crons": [{ "path": "/api/cron/sync", "schedule": "*/30 * * * *" }],
+  "functions": {
+    "pages/api/cron/sync.js": { "maxDuration": 300 },
+    "pages/api/sync.js": { "maxDuration": 300 },
+    "pages/api/connect.js": { "maxDuration": 300 },
+    "pages/api/facebook/callback.js": { "maxDuration": 300 },
+    "pages/api/ai/analyze.js": { "maxDuration": 180 }
+  }
+}
