@@ -72,7 +72,6 @@ Log thực tế cho thấy Auth chấp nhận đăng nhập, sau đó ghi `user_
 Đã bổ sung kiểm tra khóa public bị đặt nhầm vào biến server, thông báo thiếu schema có thể xử lý được, và `npm run setup:check` chỉ đọc, không in khóa hoặc dữ liệu. Backend trả mã 503 `SUPABASE_SERVER_KEY_REQUIRED` hoặc `SUPABASE_SCHEMA_REQUIRED` thay vì lỗi 500 chung.
 
 Sau thay đổi: **41/41 test đạt**. Kiểm tra HTTP trên dev server xác nhận login trả đúng 503 và hướng dẫn sửa khóa; không gọi đăng nhập Supabase khi đã phát hiện khóa server sai. Các thay đổi này được kiểm tra qua test và API local; không ghi nhận là một lần đăng nhập thật thành công hoặc một lần build production mới. Database và file `.env.local` không bị thay đổi trong bước chẩn đoán này.
-<<<<<<< HEAD
 
 ## Cập nhật sau khi kết nối Supabase
 
@@ -189,5 +188,11 @@ Kiểm chứng:
 - Production build thành công với 4 endpoint AI. Chưa có API key Meta Model API trên máy nên **chưa xác minh lượt sinh phân tích thật với tài khoản của người dùng**; các lượt provider trong test dùng response giả lập và được phân biệt với kiểm chứng Storage thật.
 - Cỡ chữ CSS chuyển sang thang 16px/14px/12px, bao gồm breakpoint mobile; tăng chiều cao điều khiển và cho phép nội dung nút xuống dòng. SVG biểu đồ dùng ResizeObserver theo chiều rộng thực, chữ nhãn 13px và bớt mốc ngày trên màn hình hẹp.
 - Chưa có lượt kiểm tra trực quan/tương tác bằng trình duyệt tự động mới vì công cụ browser local trước đó bị tắt.
-=======
->>>>>>> 7045534 (Diagnose Supabase login setup errors without exposing credentials)
+
+## Cập nhật: chẩn đoán cấu hình đăng nhập trên Vercel
+
+Endpoint production `/api/status` trả `database: false`: ít nhất một biến bắt buộc chưa có trên bản deploy. Đây là kiểm tra trước Supabase Auth, không phải kết luận mật khẩu sai. Đã thay thông báo chung bằng mã `SUPABASE_ENV_REQUIRED` kèm danh sách tên biến còn thiếu; `/api/status` bổ sung `databaseMissing`, không trả giá trị hoặc email admin. Giá trị chỉ gồm khoảng trắng cũng được tính là thiếu.
+
+- **79/79 test đạt**, bao gồm từng biến thiếu riêng lẻ, biến trống, lỗi login 503 trước khi gọi Auth và kiểm tra response không chứa các giá trị cấu hình.
+- Đã dọn các dấu conflict Git còn sót trong README, tài liệu kiểm chứng và script chẩn đoán; giữ nguyên nội dung phía đã có. `node --check scripts/check-supabase.mjs` đạt.
+- Production build local thành công. Thay đổi environment trên Vercel cần áp dụng đúng Production/Preview và tạo deployment mới; không sửa khóa hay cấu trúc database để bỏ qua điều kiện cấu hình.

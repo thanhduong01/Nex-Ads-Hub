@@ -27,15 +27,12 @@ try {
   serverKeyValid = false;
   report(false, 'Loại khóa server', error.message);
 }
-<<<<<<< HEAD
 if (!serverKeyValid) {
   console.log(
     'Dừng kiểm tra database vì khóa server chưa có quyền quản trị. Thay khóa trong .env.local rồi chạy lại lệnh này.',
   );
   process.exit(1);
 }
-=======
->>>>>>> 7045534 (Diagnose Supabase login setup errors without exposing credentials)
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,

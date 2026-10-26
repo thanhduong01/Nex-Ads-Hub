@@ -52,6 +52,10 @@ Không đặt service-role key vào biến `NEXT_PUBLIC_*`, localStorage hay mã
 
 ### Lỗi đăng nhập do cấu hình
 
+Nếu site Vercel báo thiếu cấu hình dù local hoạt động, mở `/api/status` trên đúng domain đang báo lỗi và xem `databaseMissing`. Endpoint chỉ trả **tên biến còn thiếu**, không trả giá trị. Login cũng trả mã `SUPABASE_ENV_REQUIRED` với tên biến cụ thể trước khi gọi Supabase Auth.
+
+Trong Vercel → đúng Project → Settings → Environment Variables, kiểm tra đủ `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAIL`. Chọn đúng môi trường **Production** hoặc **Preview** của URL đang mở. Lưu rồi vào Deployments → Redeploy và mở deployment mới; thay đổi env không cập nhật vào deployment cũ. [Tài liệu Vercel](https://vercel.com/docs/environment-variables). `.env.local` trên máy không tự chuyển thành cấu hình Vercel.
+
 Chạy `npm run setup:check` trong thư mục project. Lệnh chỉ đọc, không in khóa/token hoặc dữ liệu trong bảng.
 
 - **Khóa server là anon/publishable:** vào Supabase → Settings → API Keys, lấy Secret key dành cho backend (`sb_secret_...`) hoặc legacy `service_role`. Đặt vào `SUPABASE_SERVICE_ROLE_KEY` trong `.env.local`; giữ khóa publishable/anon ở `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Khởi động lại server. [Các loại API key](https://supabase.com/docs/guides/getting-started/api-keys).
@@ -60,13 +64,10 @@ Chạy `npm run setup:check` trong thư mục project. Lệnh chỉ đọc, khô
 
 Thông báo API dùng mã `SUPABASE_SERVER_KEY_REQUIRED` hoặc `SUPABASE_SCHEMA_REQUIRED` để phân biệt hai lỗi thiết lập này với lỗi mật khẩu. Đây là kiểm tra cấu hình; khóa vẫn được Supabase xác thực ở mỗi request.
 
-<<<<<<< HEAD
 Migration sửa cấu trúc legacy đã được lưu tại `supabase/migrations/20261025143207_align_ads_hub_schema.sql`. Migration này dành riêng cho bộ 5 bảng legacy đã kiểm tra: chỉ chạy khi cả 5 bảng còn trống, khóa bảng trong giao dịch, chuyển chúng sang schema riêng `ads_hub_legacy`, rồi tạo 8 bảng ứng dụng. Nó dừng và rollback nếu thấy dữ liệu. Không chạy migration này trên project mới hoặc cấu trúc khác; project mới dùng `supabase/schema.sql`.
 
 Các hàm hỗ trợ RLS ở schema riêng `ads_hub_private`; hai RPC ghi dữ liệu chạy dưới quyền caller và chỉ cấp cho `service_role`. Các bảng legacy được giữ nguyên cấu trúc, không cấp quyền truy cập schema cho trình duyệt.
 
-=======
->>>>>>> 7045534 (Diagnose Supabase login setup errors without exposing credentials)
 ## 2. Chuẩn bị Meta
 
 ### Cách nhanh: System User Token

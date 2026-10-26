@@ -7,11 +7,24 @@ import {
   setCookie,
   publicSession,
 } from '../../../lib/server.js';
-import { supabaseAnon, supabaseAdmin, configured, checked } from '../../../lib/supabase.js';
+import {
+  supabaseAnon,
+  supabaseAdmin,
+  missingDatabaseConfiguration,
+  checked,
+} from '../../../lib/supabase.js';
 import { SEVEN_DAYS } from '../../../lib/metrics.js';
 export default api(
   async (req, res) => {
-    if (!configured()) throw fail('Cần cấu hình Supabase và ADMIN_EMAIL trước khi đăng nhập.', 503);
+    const missing = missingDatabaseConfiguration();
+    if (missing.length)
+      throw Object.assign(
+        fail(
+          `Thiếu cấu hình đăng nhập: ${missing.join(', ')}. Kiểm tra biến môi trường của bản deploy đang mở rồi Redeploy; nếu chạy local, kiểm tra .env.local và khởi động lại server.`,
+          503,
+        ),
+        { code: 'SUPABASE_ENV_REQUIRED' },
+      );
     const { email, password } = req.body || {};
     if (
       typeof email !== 'string' ||

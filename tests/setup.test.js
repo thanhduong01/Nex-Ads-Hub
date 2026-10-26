@@ -1,10 +1,68 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertServerKey, checked } from '../lib/supabase.js';
+import {
+  assertServerKey,
+  checked,
+  configured,
+  missingDatabaseConfiguration,
+} from '../lib/supabase.js';
 import { api } from '../lib/server.js';
+import login from '../pages/api/auth/login.js';
+import statusRoute from '../pages/api/status.js';
 
 const tokenWithRole = (role) =>
   `header.${Buffer.from(JSON.stringify({ role })).toString('base64url')}.signature`;
+
+test('deployment diagnostics name each missing variable without exposing configured values', async (t) => {
+  const values = {
+    NEXT_PUBLIC_SUPABASE_URL: 'https://private-project.supabase.co',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: 'private-test-publishable-key',
+    SUPABASE_SERVICE_ROLE_KEY: 'private-test-server-secret',
+    ADMIN_EMAIL: 'private-admin@example.com',
+    NEXT_PUBLIC_SITE_URL: 'https://app.example.com',
+  };
+  const original = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
+  t.after(() => {
+    for (const [name, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  Object.assign(process.env, values);
+  assert(configured());
+  for (const name of Object.keys(values).filter((name) => name !== 'NEXT_PUBLIC_SITE_URL')) {
+    delete process.env[name];
+    assert.deepEqual(missingDatabaseConfiguration(), [name]);
+    assert.equal(configured(), false);
+    process.env[name] = values[name];
+  }
+  process.env.SUPABASE_SERVICE_ROLE_KEY = '   ';
+  const res = () => ({
+    setHeader() {},
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+    },
+  });
+  const diagnostic = res();
+  await statusRoute({ method: 'GET', headers: {} }, diagnostic);
+  assert.equal(diagnostic.body.database, false);
+  assert.deepEqual(diagnostic.body.databaseMissing, ['SUPABASE_SERVICE_ROLE_KEY']);
+  const rejected = res();
+  await login(
+    { method: 'POST', headers: { origin: values.NEXT_PUBLIC_SITE_URL }, body: {} },
+    rejected,
+  );
+  assert.equal(rejected.statusCode, 503);
+  assert.equal(rejected.body.code, 'SUPABASE_ENV_REQUIRED');
+  assert(rejected.body.error.includes('SUPABASE_SERVICE_ROLE_KEY'));
+  assert(rejected.body.error.includes('Redeploy'));
+  const output = JSON.stringify([diagnostic.body, rejected.body]);
+  for (const value of Object.values(values)) assert(!output.includes(value));
+});
 
 test('server configuration rejects public keys without disclosing the key', () => {
   for (const key of [tokenWithRole('anon'), 'sb_publishable_test_value']) {
