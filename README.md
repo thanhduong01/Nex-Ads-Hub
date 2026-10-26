@@ -167,6 +167,9 @@ Nếu dùng Hobby, bỏ `crons` khỏi `vercel.json` và dùng scheduler ngoài 
 - Bộ lọc BM → tài khoản → chiến dịch tự reset cấp con; khoảng hôm nay, hôm qua, 3/7/14 ngày thay đổi KPI, biểu đồ, bảng và phân tích. Mặc định 7 ngày.
 - Bộ lọc trạng thái chiến dịch mặc định **Tất cả trạng thái**, gồm Đang chạy, Tạm dừng, Đã lưu trữ, Đã xóa và các trạng thái khác có trong dữ liệu. Dùng trạng thái hiện tại đã đồng bộ từ Meta; áp dụng cho lựa chọn chiến dịch, KPI, biểu đồ, bảng và phân tích. Đổi trạng thái bỏ chọn chiến dịch cụ thể và trở về trang 1.
 - Cả ba bảng chiến dịch, tài khoản quảng cáo và báo cáo theo ngày có phân trang **20 / 50 / 100 dòng**, mặc định 20. Đổi bộ lọc, tìm kiếm, sắp xếp, khách hàng, tháng hoặc số dòng sẽ về trang 1; dữ liệu giảm tự chuyển về trang hợp lệ. KPI, tổng tháng và file xuất vẫn dùng toàn bộ dữ liệu trong phạm vi đã chọn.
+- Bảng chiến dịch có nút **Tùy chỉnh cột**: tìm và bật/tắt 23 trường thông tin/chỉ số từ dữ liệu Meta đã đồng bộ, đổi tên và di chuyển thứ tự bằng mũi tên. Có CPM, CPC, CTR, ROAS, CPA, lead, chi phí/lead và doanh thu. Các cột đều sắp xếp được; phân trang áp dụng sau khi sắp xếp toàn bộ kết quả.
+- **Tạo chỉ số công thức** hỗ trợ hai chỉ số hoặc một chỉ số với hằng số, các phép `+ − × ÷`, định dạng số/tiền/phần trăm/tỷ lệ. Tối đa 12 công thức; chia cho 0 hoặc thiếu đầu vào hiển thị “—”. Định dạng phần trăm chỉ thêm `%`, không tự nhân 100. Công thức chạy trên tổng số liệu chiến dịch trong khoảng ngày đã lọc.
+- Nhấn **Lưu hiển thị** để lưu cột, tên, thứ tự và công thức theo workspace; tải lại hoặc đăng nhập thiết bị khác sẽ dùng cấu hình này. **Hủy** bỏ thay đổi chưa lưu; **Khôi phục mặc định** chỉ áp dụng khi lưu. Cấu hình nằm trong bucket Supabase Storage riêng tư `ads-hub-preferences`, tự tạo khi lưu lần đầu, không cần migration SQL. Dữ liệu mẫu lưu riêng trên trình duyệt.
 - Dashboard chỉ cộng tài khoản VND để tránh trộn tiền tệ. Mỗi khách hàng chỉ gán các tài khoản cùng một đơn vị tiền; quy tắc được kiểm tra cả API và SQL.
 - KPI ROAS = tổng doanh thu / tổng chi tiêu; CPA = chi tiêu / số mua; CTR = nhấp / hiển thị × 100. Không lấy trung bình số trung bình. Kết quả của dashboard là **lượt mua**, không tự coi mọi loại action là conversion.
 - Biểu đồ cho thấy ba chuỗi theo thang tương đối riêng để không nhầm VND với ROAS; tooltip có số thật. Chọn 14 ngày để xem đủ 14 điểm.
@@ -208,29 +211,30 @@ Timer trình duyệt 30 phút gọi sync khi admin đang xem báo cáo; client c
 
 Các endpoint ghi cần cookie hợp lệ và Origin bằng `NEXT_PUBLIC_SITE_URL`, trừ callback OAuth dùng `state`.
 
-| Endpoint                            | Quyền                     | Chức năng                                                                          |
-| ----------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
-| `POST /api/auth/login`              | Public                    | `{email,password}` → tạo phiên sau xác thực Supabase                               |
-| `GET /api/auth/session`             | Đã đăng nhập              | Đọc phiên không gia hạn                                                            |
-| `POST /api/auth/session`            | Đã đăng nhập              | Gia hạn sau hoạt động                                                              |
-| `POST /api/auth/logout`             | Đã đăng nhập              | Thu hồi phiên                                                                      |
-| `POST /api/connect`                 | Admin                     | Dùng env token; hỗ trợ `{token}` và xác minh `/me`, không tin `fbUserId` client    |
-| `GET /api/accounts`                 | Admin                     | Danh sách account đang tracked                                                     |
-| `PATCH /api/accounts`               | Admin                     | `{id,is_tracked}`                                                                  |
-| `DELETE /api/accounts`              | Admin                     | Ngắt kết nối; xóa account/BM/camp/insights/link gán, giữ client và cấu hình report |
-| `GET /api/data?month=YYYY-MM`       | Đã đăng nhập              | Dữ liệu đúng phạm vi user; không trả encrypted token                               |
-| `GET/POST/PUT /api/clients`         | GET theo quyền; ghi Admin | Quản lý folder và gán tài khoản                                                    |
-| `POST /api/reports`                 | Admin                     | `{client_id,month,config}` upsert cấu hình                                         |
-| `POST /api/sync`                    | Admin                     | `{month?,client_id?}`                                                              |
-| `GET /api/cron/sync`                | Bearer secret             | Đồng bộ tracked accounts; 207 nếu có account lỗi/bị hoãn                           |
-| `GET /api/facebook/start`           | Admin                     | Bắt đầu OAuth popup                                                                |
-| `GET /api/facebook/callback`        | Admin + OAuth state       | Hoàn tất kết nối                                                                   |
-| `GET /api/facebook/connection`      | Admin                     | Xác minh danh tính các nguồn token đang dùng cho tài khoản đã lưu                  |
-| `GET /api/ai/settings`              | Admin                     | Cấu hình kết nối và thư viện prompt, không trả khóa                                |
-| `POST/DELETE /api/ai/connection`    | Admin                     | Xác minh/lưu model và khóa mã hóa; ngắt kết nối                                    |
-| `POST/PATCH/DELETE /api/ai/prompts` | Admin                     | Lưu prompt, chọn mặc định, xóa                                                     |
-| `POST /api/ai/analyze`              | Admin                     | Lấy lại dữ liệu theo workspace/bộ lọc, gọi Meta AI với prompt đã lưu               |
-| `GET /api/status`                   | Public                    | Chỉ trạng thái có/chưa có env, không lộ giá trị                                    |
+| Endpoint                                    | Quyền                     | Chức năng                                                                          |
+| ------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
+| `POST /api/auth/login`                      | Public                    | `{email,password}` → tạo phiên sau xác thực Supabase                               |
+| `GET /api/auth/session`                     | Đã đăng nhập              | Đọc phiên không gia hạn                                                            |
+| `POST /api/auth/session`                    | Đã đăng nhập              | Gia hạn sau hoạt động                                                              |
+| `POST /api/auth/logout`                     | Đã đăng nhập              | Thu hồi phiên                                                                      |
+| `POST /api/connect`                         | Admin                     | Dùng env token; hỗ trợ `{token}` và xác minh `/me`, không tin `fbUserId` client    |
+| `GET /api/accounts`                         | Admin                     | Danh sách account đang tracked                                                     |
+| `PATCH /api/accounts`                       | Admin                     | `{id,is_tracked}`                                                                  |
+| `DELETE /api/accounts`                      | Admin                     | Ngắt kết nối; xóa account/BM/camp/insights/link gán, giữ client và cấu hình report |
+| `GET /api/data?month=YYYY-MM`               | Đã đăng nhập              | Dữ liệu đúng phạm vi user; không trả encrypted token                               |
+| `GET/POST/PUT /api/clients`                 | GET theo quyền; ghi Admin | Quản lý folder và gán tài khoản                                                    |
+| `POST /api/reports`                         | Admin                     | `{client_id,month,config}` upsert cấu hình                                         |
+| `GET/PUT /api/preferences/campaign-columns` | Admin                     | Đọc/lưu cột, tên, thứ tự và công thức trong workspace của phiên đăng nhập          |
+| `POST /api/sync`                            | Admin                     | `{month?,client_id?}`                                                              |
+| `GET /api/cron/sync`                        | Bearer secret             | Đồng bộ tracked accounts; 207 nếu có account lỗi/bị hoãn                           |
+| `GET /api/facebook/start`                   | Admin                     | Bắt đầu OAuth popup                                                                |
+| `GET /api/facebook/callback`                | Admin + OAuth state       | Hoàn tất kết nối                                                                   |
+| `GET /api/facebook/connection`              | Admin                     | Xác minh danh tính các nguồn token đang dùng cho tài khoản đã lưu                  |
+| `GET /api/ai/settings`                      | Admin                     | Cấu hình kết nối và thư viện prompt, không trả khóa                                |
+| `POST/DELETE /api/ai/connection`            | Admin                     | Xác minh/lưu model và khóa mã hóa; ngắt kết nối                                    |
+| `POST/PATCH/DELETE /api/ai/prompts`         | Admin                     | Lưu prompt, chọn mặc định, xóa                                                     |
+| `POST /api/ai/analyze`                      | Admin                     | Lấy lại dữ liệu theo workspace/bộ lọc, gọi Meta AI với prompt đã lưu               |
+| `GET /api/status`                           | Public                    | Chỉ trạng thái có/chưa có env, không lộ giá trị                                    |
 
 ## Kiểm thử
 

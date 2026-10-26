@@ -142,7 +142,7 @@ export function Dropdown({
     </div>
   );
 }
-export function Modal({ title, subtitle, children, onClose, wide = false }) {
+export function Modal({ title, subtitle, children, onClose, wide = false, className = '' }) {
   const ref = useRef();
   const previous = useRef(null);
   const closeRef = useRef(onClose);
@@ -193,7 +193,7 @@ export function Modal({ title, subtitle, children, onClose, wide = false }) {
       }}
     >
       <div
-        className={`modal ${wide ? 'wide' : ''}`}
+        className={`modal ${wide ? 'wide' : ''} ${className}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

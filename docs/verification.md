@@ -198,3 +198,13 @@ Endpoint production `/api/status` trả `database: false`: ít nhất một bi�
 - Production build local thành công. Thay đổi environment trên Vercel cần áp dụng đúng Production/Preview và tạo deployment mới; không sửa khóa hay cấu trúc database để bỏ qua điều kiện cấu hình.
 
 Sau khi đối chiếu tên biến qua kết nối Vercel, xác nhận project đã có `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY` nhưng mã yêu cầu các tên chuẩn khác. Đã bổ sung resolver server dùng chung cho trạng thái, login, Supabase clients và script kiểm tra. Hỗ trợ hai cách đặt tên, ưu tiên biến chuẩn, bỏ khoảng trắng đầu/cuối; vẫn từ chối anon/publishable trong khóa server. Không đọc hay đổi giá trị secret trên Vercel trong bước chẩn đoán này. **80/80 test đạt** sau sửa, gồm resolver alias, client thực sự dùng khóa đã resolve và ưu tiên biến chuẩn.
+
+## Cập nhật: tùy chỉnh cột bảng chiến dịch
+
+Bảng dùng danh mục 23 trường/chỉ số thực sự có trong dữ liệu đã đồng bộ. Người dùng bật/tắt, đổi tên, đổi thứ tự, tạo/sửa chỉ số công thức có hai đối số. Không thực thi chuỗi công thức tùy ý. Các tỷ lệ được tính lại từ tổng trong phạm vi lọc; reach và tần suất có nhãn/ghi chú về cộng dồn theo ngày. Cột trạng thái dùng trạng thái Meta đã đồng bộ. Cột công thức cũng sắp xếp toàn bộ kết quả trước khi phân trang.
+
+- **86/86 test đạt**: kiểm tra dữ liệu có trọng số, CPA/CPM/CPL/ROAS, công thức và chia cho 0, dữ liệu sai account, sắp xếp văn bản/số/null qua các trang, đầu vào không hợp lệ, lưu/đọc riêng từng workspace, từ chối truy cập chưa đăng nhập và cross-origin.
+- Browser local, chế độ dữ liệu mẫu: chọn thêm CPM, đổi tên chi tiêu, đổi thứ tự tên chiến dịch và tài khoản, tạo `Doanh thu / Chi tiêu`, lưu rồi tải lại. Xác nhận 11 cột giữ đúng tên/thứ tự, giá trị công thức khớp ROAS, sắp xếp theo công thức đúng và KPI không thay đổi. Sau kiểm tra khôi phục 9 cột mặc định của demo. Cửa sổ chọn cột được kiểm tra trực quan ở viewport 1280×720, giữ chữ 16/14/12px.
+- Supabase Storage thật: tạo bucket riêng tư `ads-hub-preferences`, lưu/đọc cấu hình trong workspace kiểm tra tạm và so sánh thứ tự/tên cột. Anonymous download bị từ chối; đã xóa file thử. Không ghi đè tùy chọn của workspace admin, không thay đổi dữ liệu quảng cáo. API lấy workspace từ phiên đăng nhập server.
+- Rà soát React: effect đọc cấu hình có cleanup, localStorage demo có version/validation và tách dữ liệu thật; component cấp module, key theo ID ổn định, nút icon có tên truy cập, modal giữ focus và có Escape. Ghép insight theo campaign bằng Map thay cho lọc toàn bộ dữ liệu cho từng dòng. Không thêm dependency.
+- Production build thành công với endpoint `/api/preferences/campaign-columns`; dev server khởi động lại tại `http://127.0.0.1:3000`.

@@ -20,6 +20,12 @@ import Chart from './Chart.jsx';
 import Pagination, { usePagination } from './Pagination.jsx';
 import { aggregate, rangeFor, shiftDate, format } from '../lib/metrics.js';
 import MetaAIInsights from './MetaAIInsights.jsx';
+import CampaignColumns, { useCampaignColumns } from './CampaignColumns.jsx';
+import {
+  buildCampaignRows,
+  campaignColumnDefinitions,
+  sortCampaignRows,
+} from '../lib/campaignColumns.js';
 import {
   dashboardScope,
   UNASSIGNED_BM,
@@ -44,7 +50,53 @@ function MiniSpark({ index }) {
     </svg>
   );
 }
+function CampaignCell({ column, row }) {
+  const value = row[column.key];
+  if (column.key === 'name')
+    return (
+      <div className="campaign-name">
+        <span className={`campaign-glyph ${row.status === 'ACTIVE' ? 'running' : 'neutral'}`}>
+          <Layers3 size={16} />
+        </span>
+        <strong>{row.name}</strong>
+      </div>
+    );
+  if (column.key === 'status')
+    return (
+      <Badge tone={row.status === 'ACTIVE' ? 'running' : 'neutral'}>
+        {campaignStatusLabel(row.status)}
+      </Badge>
+    );
+  if (column.key === 'daily_budget' && value == null) return 'Theo nhóm QC';
+  if (column.type === 'text')
+    return (
+      <span className={['id', 'account_id', 'bm_id'].includes(column.key) ? 'mono' : ''}>
+        {value ?? '—'}
+      </span>
+    );
+  return (
+    <span
+      className={
+        column.key === 'spend'
+          ? 'strong'
+          : column.key === 'ROAS' && value >= 3.5
+            ? 'text-green'
+            : ''
+      }
+    >
+      {format(value, column.type)}
+    </span>
+  );
+}
 export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI, demo }) {
+  const {
+    config: columnConfig,
+    loading: columnsLoading,
+    issue: columnsIssue,
+    save: saveColumns,
+  } = useCampaignColumns(demo);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const visibleColumns = campaignColumnDefinitions(columnConfig);
   const [bm, setBm] = useState('all'),
     [account, setAccount] = useState('all'),
     [camp, setCamp] = useState('all'),
@@ -68,13 +120,23 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
   const previous = aggregate(
     rows.filter((r) => r.date >= shiftDate(range.since, -days) && r.date < range.since),
   );
-  const table = campaigns
-    .map((c) => ({ ...c, ...aggregate(selected.filter((r) => r.campaign_id === c.id)) }))
-    .filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
-    .sort((a, b) => sort.dir * ((a[sort.key] ?? 0) - (b[sort.key] ?? 0)));
+  const effectiveSort = columnConfig.selected_columns.includes(sort.key)
+    ? sort
+    : {
+        key: columnConfig.selected_columns.includes('spend')
+          ? 'spend'
+          : columnConfig.selected_columns[0],
+        dir: -1,
+      };
+  const table = sortCampaignRows(
+    buildCampaignRows(campaigns, selected, data.accounts, data.bms, columnConfig).filter(
+      (campaign) => campaign.name.toLowerCase().includes(query.toLowerCase()),
+    ),
+    effectiveSort,
+  );
   const pagination = usePagination(
     table,
-    JSON.stringify([bm, account, camp, status, period, query, sort]),
+    JSON.stringify([bm, account, camp, status, period, query, effectiveSort]),
   );
   const summary = [
     { name: 'Tổng chi tiêu', key: 'spend', type: 'money', icon: Wallet, inverse: true },
@@ -242,97 +304,83 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
             <span className="count-pill">{table.length}</span>
             <span className="muted">Theo dõi và tối ưu hiệu quả</span>
           </div>
-          <SearchInput value={query} onChange={setQuery} placeholder="Tìm chiến dịch…" />
+          <div className="campaign-table-actions">
+            <SearchInput value={query} onChange={setQuery} placeholder="Tìm chiến dịch…" />
+            <Button busy={columnsLoading} onClick={() => setColumnsOpen(true)}>
+              <SlidersHorizontal size={15} /> Tùy chỉnh cột{' '}
+              <span className="count-pill">{visibleColumns.length}</span>
+            </Button>
+          </div>
         </div>
+        {columnsIssue && (
+          <div className="notice yellow" role="alert">
+            {columnsIssue} Đang hiển thị bố cục mặc định; mở Tùy chỉnh cột để lưu lại.
+          </div>
+        )}
         <div className="table-scroll">
           <table id="campaigns-table" className="campaign-table">
             <thead>
               <tr>
-                <th className="name-col">Tên chiến dịch</th>
-                <th>Ngân sách/ngày</th>
-                {[
-                  ['spend', 'Đã chi tiêu'],
-                  ['conversions', 'Kết quả'],
-                  ['cpa', 'CPA'],
-                  ['ROAS', 'ROAS'],
-                  ['ctr', 'CTR'],
-                ].map(([key, label]) => (
-                  <th key={key}>
+                {visibleColumns.map((column) => (
+                  <th
+                    key={column.key}
+                    className={column.key === 'name' ? 'name-col' : ''}
+                    aria-sort={
+                      effectiveSort.key === column.key
+                        ? effectiveSort.dir < 0
+                          ? 'descending'
+                          : 'ascending'
+                        : 'none'
+                    }
+                  >
                     <button
-                      onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : -1 }))}
+                      type="button"
+                      title={
+                        column.left
+                          ? `${column.left} ${column.operator} ${column.right}`
+                          : column.name
+                      }
+                      onClick={() =>
+                        setSort({
+                          key: column.key,
+                          dir: effectiveSort.key === column.key ? -effectiveSort.dir : -1,
+                        })
+                      }
                     >
-                      {label}
-                      {sort.key === key ? <span>{sort.dir < 0 ? ' ↓' : ' ↑'}</span> : null}
+                      {column.name}
+                      {effectiveSort.key === column.key && (
+                        <span>{effectiveSort.dir < 0 ? ' ↓' : ' ↑'}</span>
+                      )}
                     </button>
                   </th>
                 ))}
-                <th>Trạng thái</th>
-                <th aria-label="Hành động" />
+                <th aria-label="Phân tích chiến dịch" />
               </tr>
             </thead>
             <tbody>
-              {pagination.items.map((c) => {
-                const acc = data.accounts.find((a) => a.id === c.account_id);
-                const tone =
-                  c.status !== 'ACTIVE'
-                    ? 'neutral'
-                    : c.ROAS >= 3.5
-                      ? 'positive'
-                      : c.ROAS < 1.5 && c.spend
-                        ? 'warning'
-                        : 'running';
-                const label =
-                  c.status !== 'ACTIVE'
-                    ? campaignStatusLabel(c.status)
-                    : tone === 'positive'
-                      ? 'Hiệu quả cao'
-                      : tone === 'warning'
-                        ? 'Cần tối ưu'
-                        : 'Đang chạy';
-                return (
-                  <tr key={c.id}>
-                    <td>
-                      <div className="campaign-name">
-                        <span className={`campaign-glyph ${tone}`}>
-                          <Layers3 size={16} />
-                        </span>
-                        <div>
-                          <strong>{c.name}</strong>
-                          <small>{acc?.name}</small>
-                        </div>
-                      </div>
+              {pagination.items.map((campaign) => (
+                <tr key={campaign.id}>
+                  {visibleColumns.map((column) => (
+                    <td key={column.key} className={column.key === 'name' ? 'name-col' : ''}>
+                      <CampaignCell column={column} row={campaign} />
                     </td>
-                    <td>
-                      {c.daily_budget == null ? 'Theo nhóm QC' : format(c.daily_budget, 'money')}
-                    </td>
-                    <td className="strong">{format(c.spend, 'money')}</td>
-                    <td>
-                      {format(c.conversions)}
-                      <small>Lượt mua</small>
-                    </td>
-                    <td>{format(c.cpa, 'money')}</td>
-                    <td className={c.ROAS >= 3.5 ? 'text-green' : ''}>{format(c.ROAS, 'ratio')}</td>
-                    <td>{format(c.ctr, 'percent')}</td>
-                    <td>
-                      <Badge tone={tone}>{label}</Badge>
-                      {c.status === 'ACTIVE' && label !== 'Đang chạy' && <small>Đang chạy</small>}
-                    </td>
-                    <td>
-                      <button
-                        className="icon-button"
-                        aria-label={`Phân tích ${c.name}`}
-                        disabled={aiBusy}
-                        onClick={() => {
-                          setCamp(c.id);
-                          setAnalysisRequest((value) => value + 1);
-                        }}
-                      >
-                        <Sparkles size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                  ))}
+                  <td>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Phân tích ${campaign.name}`}
+                      disabled={aiBusy}
+                      onClick={() => {
+                        setCamp(campaign.id);
+                        setAnalysisRequest((value) => value + 1);
+                      }}
+                    >
+                      <Sparkles size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
           {!table.length && (
@@ -344,10 +392,17 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
         <Pagination pagination={pagination} tableId="campaigns-table" label="chiến dịch" />
         <div className="table-footer">
           <span>
-            Tổng {table.length} chiến dịch <span className="separator">•</span> Kết quả: Lượt mua
+            Tổng {table.length} chiến dịch <span className="separator">•</span>{' '}
+            {visibleColumns.length} cột hiển thị
           </span>
-          <span>CPA = Chi tiêu / Lượt mua</span>
+          <span>Tỷ lệ tính lại từ tổng số liệu.</span>
         </div>
+        {visibleColumns.some((column) => ['reach', 'frequency'].includes(column.key)) && (
+          <p className="campaign-table-footnote">
+            * Tiếp cận cộng dồn không khử trùng lặp người dùng giữa các ngày. Tần suất ước tính =
+            Lượt hiển thị / Tiếp cận cộng dồn, có thể khác tần suất toàn kỳ trong Ads Manager.
+          </p>
+        )}
       </section>
       <div className="page-footer">
         <span>
@@ -358,6 +413,22 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
           ADS HUB <span className="separator">/</span> MADE FOR MEDIA BUYERS
         </span>
       </div>
+      {columnsOpen && (
+        <CampaignColumns
+          config={columnConfig}
+          demo={demo}
+          issue={columnsIssue}
+          onClose={() => setColumnsOpen(false)}
+          onSave={async (next) => {
+            await saveColumns(next);
+            toast(
+              demo
+                ? 'Đã lưu cột cho dữ liệu mẫu trên trình duyệt này.'
+                : 'Đã lưu cấu hình cột theo workspace.',
+            );
+          }}
+        />
+      )}
     </>
   );
 }
