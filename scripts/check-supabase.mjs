@@ -1,9 +1,10 @@
 // Read-only setup diagnostics. Never print key values, tokens or database rows.
 import nextEnv from '@next/env';
 import { createClient } from '@supabase/supabase-js';
-import { assertServerKey } from '../lib/supabase.js';
+import { assertServerKey, databaseConfiguration } from '../lib/supabase.js';
 
 nextEnv.loadEnvConfig(process.cwd(), true, { info() {}, error() {} });
+const configuration = databaseConfiguration();
 let failures = 0;
 const report = (ok, name, detail = '') => {
   if (!ok) failures++;
@@ -16,12 +17,16 @@ const required = [
   'ADMIN_EMAIL',
 ];
 for (const name of required)
-  report(Boolean(process.env[name]), name, process.env[name] ? 'đã có giá trị' : 'chưa cấu hình');
-if (required.some((name) => !process.env[name])) process.exit(1);
+  report(
+    Boolean(configuration[name]),
+    name,
+    configuration[name] ? 'đã có giá trị' : 'chưa cấu hình',
+  );
+if (required.some((name) => !configuration[name])) process.exit(1);
 
 let serverKeyValid = true;
 try {
-  assertServerKey(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  assertServerKey(configuration.SUPABASE_SERVICE_ROLE_KEY);
   report(true, 'Loại khóa server');
 } catch (error) {
   serverKeyValid = false;
@@ -34,8 +39,8 @@ if (!serverKeyValid) {
   process.exit(1);
 }
 const db = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  configuration.NEXT_PUBLIC_SUPABASE_URL,
+  configuration.SUPABASE_SERVICE_ROLE_KEY,
   {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15000) }) },

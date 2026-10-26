@@ -196,3 +196,5 @@ Endpoint production `/api/status` trả `database: false`: ít nhất một bi�
 - **79/79 test đạt**, bao gồm từng biến thiếu riêng lẻ, biến trống, lỗi login 503 trước khi gọi Auth và kiểm tra response không chứa các giá trị cấu hình.
 - Đã dọn các dấu conflict Git còn sót trong README, tài liệu kiểm chứng và script chẩn đoán; giữ nguyên nội dung phía đã có. `node --check scripts/check-supabase.mjs` đạt.
 - Production build local thành công. Thay đổi environment trên Vercel cần áp dụng đúng Production/Preview và tạo deployment mới; không sửa khóa hay cấu trúc database để bỏ qua điều kiện cấu hình.
+
+Sau khi đối chiếu tên biến qua kết nối Vercel, xác nhận project đã có `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY` nhưng mã yêu cầu các tên chuẩn khác. Đã bổ sung resolver server dùng chung cho trạng thái, login, Supabase clients và script kiểm tra. Hỗ trợ hai cách đặt tên, ưu tiên biến chuẩn, bỏ khoảng trắng đầu/cuối; vẫn từ chối anon/publishable trong khóa server. Không đọc hay đổi giá trị secret trên Vercel trong bước chẩn đoán này. **80/80 test đạt** sau sửa, gồm resolver alias, client thực sự dùng khóa đã resolve và ưu tiên biến chuẩn.

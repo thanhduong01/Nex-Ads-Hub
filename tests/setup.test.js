@@ -5,6 +5,9 @@ import {
   checked,
   configured,
   missingDatabaseConfiguration,
+  databaseConfiguration,
+  supabaseAdmin,
+  supabaseAnon,
 } from '../lib/supabase.js';
 import { api } from '../lib/server.js';
 import login from '../pages/api/auth/login.js';
@@ -21,7 +24,10 @@ test('deployment diagnostics name each missing variable without exposing configu
     ADMIN_EMAIL: 'private-admin@example.com',
     NEXT_PUBLIC_SITE_URL: 'https://app.example.com',
   };
-  const original = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
+  const aliases = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_KEY'];
+  const original = Object.fromEntries(
+    [...Object.keys(values), ...aliases].map((name) => [name, process.env[name]]),
+  );
   t.after(() => {
     for (const [name, value] of Object.entries(original)) {
       if (value === undefined) delete process.env[name];
@@ -29,6 +35,7 @@ test('deployment diagnostics name each missing variable without exposing configu
     }
   });
   Object.assign(process.env, values);
+  for (const name of aliases) delete process.env[name];
   assert(configured());
   for (const name of Object.keys(values).filter((name) => name !== 'NEXT_PUBLIC_SITE_URL')) {
     delete process.env[name];
@@ -62,6 +69,50 @@ test('deployment diagnostics name each missing variable without exposing configu
   assert(rejected.body.error.includes('Redeploy'));
   const output = JSON.stringify([diagnostic.body, rejected.body]);
   for (const value of Object.values(values)) assert(!output.includes(value));
+});
+
+test('production Supabase variable names configure the same server clients and retain canonical precedence', (t) => {
+  const names = [
+    'NEXT_PUBLIC_SUPABASE_URL',
+    'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_KEY',
+    'ADMIN_EMAIL',
+  ];
+  const original = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  t.after(() => {
+    for (const [name, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  for (const name of names) delete process.env[name];
+  Object.assign(process.env, {
+    SUPABASE_URL: ' https://alias-project.supabase.co ',
+    SUPABASE_ANON_KEY: 'public-alias-key',
+    SUPABASE_SERVICE_KEY: 'sb_secret_server_alias',
+    ADMIN_EMAIL: 'owner@example.com',
+  });
+  assert(configured());
+  assert.deepEqual(missingDatabaseConfiguration(), []);
+  assert.equal(
+    databaseConfiguration().NEXT_PUBLIC_SUPABASE_URL,
+    'https://alias-project.supabase.co',
+  );
+  assert.equal(supabaseAdmin().supabaseKey, 'sb_secret_server_alias');
+  assert.equal(supabaseAnon().supabaseKey, 'public-alias-key');
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://canonical-project.supabase.co';
+  assert.equal(
+    databaseConfiguration().NEXT_PUBLIC_SUPABASE_URL,
+    'https://canonical-project.supabase.co',
+  );
+  process.env.SUPABASE_SERVICE_KEY = 'sb_publishable_wrong_server_key';
+  assert.throws(
+    () => supabaseAdmin(),
+    (error) => error.code === 'SUPABASE_SERVER_KEY_REQUIRED',
+  );
 });
 
 test('server configuration rejects public keys without disclosing the key', () => {

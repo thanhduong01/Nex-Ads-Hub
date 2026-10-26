@@ -56,6 +56,8 @@ Nếu site Vercel báo thiếu cấu hình dù local hoạt động, mở `/api/
 
 Trong Vercel → đúng Project → Settings → Environment Variables, kiểm tra đủ `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAIL`. Chọn đúng môi trường **Production** hoặc **Preview** của URL đang mở. Lưu rồi vào Deployments → Redeploy và mở deployment mới; thay đổi env không cập nhật vào deployment cũ. [Tài liệu Vercel](https://vercel.com/docs/environment-variables). `.env.local` trên máy không tự chuyển thành cấu hình Vercel.
 
+Server cũng hỗ trợ các tên tương ứng `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`. Nếu có cả hai cách đặt tên, biến chuẩn trong bảng trên được ưu tiên. Kiểm tra trạng thái và tạo Supabase client dùng chung cách đọc này; khóa server vẫn phải là Secret/service_role, không dùng publishable/anon.
+
 Chạy `npm run setup:check` trong thư mục project. Lệnh chỉ đọc, không in khóa/token hoặc dữ liệu trong bảng.
 
 - **Khóa server là anon/publishable:** vào Supabase → Settings → API Keys, lấy Secret key dành cho backend (`sb_secret_...`) hoặc legacy `service_role`. Đặt vào `SUPABASE_SERVICE_ROLE_KEY` trong `.env.local`; giữ khóa publishable/anon ở `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Khởi động lại server. [Các loại API key](https://supabase.com/docs/guides/getting-started/api-keys).
