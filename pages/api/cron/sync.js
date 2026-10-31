@@ -1,6 +1,7 @@
 import { api, fail, constantEqual } from '../../../lib/server.js';
 import { supabaseAdmin, checked } from '../../../lib/supabase.js';
 import { syncAccounts } from '../../../lib/sync.js';
+export const config = { maxDuration: 300 };
 export default api(async (req, res) => {
   const secret = process.env.CRON_SECRET;
   // x-vercel-cron alone is forgeable and must never authorize this endpoint.

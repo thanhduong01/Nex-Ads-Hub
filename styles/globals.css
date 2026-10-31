@@ -2719,6 +2719,48 @@ td small {
   font-size: var(--font-small);
   line-height: 1.7;
 }
+.sync-notice > div,
+.sync-summary > div {
+  flex: 1;
+  min-width: 0;
+}
+.sync-notice > div > span {
+  display: block;
+  margin-top: 4px;
+}
+.sync-notice progress {
+  display: block;
+  width: min(100%, 600px);
+  height: 7px;
+  margin-top: 12px;
+  accent-color: #aaa4ff;
+}
+.sync-elapsed {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sync-summary details {
+  margin-top: 7px;
+}
+.sync-summary summary {
+  cursor: pointer;
+}
+.sync-summary ul {
+  max-height: 220px;
+  overflow: auto;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .sync-notice,
+  .sync-summary {
+    flex-wrap: wrap;
+  }
+  .sync-notice > div,
+  .sync-summary > div {
+    min-width: 220px;
+  }
+}
 .column-meta-summary p,
 .campaign-meta-status p {
   color: var(--muted);

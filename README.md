@@ -164,6 +164,17 @@ Nếu dùng Hobby, bỏ `crons` khỏi `vercel.json` và dùng scheduler ngoài 
 
 ## Tính năng và quy tắc dữ liệu
 
+### Đồng bộ nhanh và tự làm mới
+
+- Sau đăng nhập/khôi phục phiên admin, ứng dụng tải dữ liệu đã lưu và kiểm tra làm mới Meta song song. Tài khoản có lần đồng bộ đầy đủ cũ hơn 15 phút được cập nhật ngay; kiểm tra lại khi quay về tab/kết nối lại mạng và mỗi 15 phút khi tab đang mở. Các sự kiện liên tiếp được gộp, không tạo nhiều lượt trùng nhau. Client chỉ tải báo cáo được cấp quyền.
+- Nút đồng bộ trên Tổng quan áp dụng cho tài khoản trong BM/tài khoản đang lọc. Tài khoản đang xem được ưu tiên trong lượt tự đồng bộ toàn workspace. Số liệu hôm nay được lấy và hiển thị trước, sau đó lịch sử được bổ sung theo tuần từ mới về cũ, tối đa 3 tài khoản song song. Có số lượt hoàn tất, thời gian chờ và nút **Dừng**; lỗi một tài khoản không chặn các tài khoản khác. Có thể thử lại riêng các tài khoản lỗi.
+- Mỗi tài khoản dùng các request ngắn có deadline. Từng khoảng ngày chỉ thay dữ liệu khi Meta đã trả đủ mọi trang, thông qua RPC giao dịch hiện có; đóng tab, dừng hoặc lỗi không xóa phần đã hoàn tất. Mốc `last_synced_at` chỉ tăng khi toàn bộ các bước cần thiết đã xong. Khóa theo tài khoản có hạn và chỉ tiến trình sở hữu khóa mới được giải phóng nó.
+- Trong ngày, đồng bộ lại có khoảng chồng 7 ngày để cập nhật chuyển đổi muộn. Sang ngày mới/đăng nhập lại sau nhiều ngày, phần nền đối soát toàn bộ tháng hiện tại hoặc 28 ngày gần nhất (lấy khoảng dài hơn), kèm danh mục chiến dịch đầy đủ. Lượt trong ngày chỉ đọc metadata của chiến dịch phát sinh chi tiêu/đang hoạt động và kiểm tra những chiến dịch vừa dừng; dùng Graph batch chứa các lệnh **GET**. Không thay đổi quảng cáo trên Meta.
+- Truy vấn dữ liệu theo trang/bộ lọc/ngày đang xem và kỳ so sánh; chỉ chọn các trường cần dùng. Danh mục chiến dịch/BM/khách hàng giữ trong bộ nhớ của phiên đã xác thực, không tải lại sau mỗi tài khoản đồng bộ hoặc khi mở Cài đặt/Meta AI. Phân trang metadata đọc tối đa 3 trang đồng thời, có thứ tự ổn định. Bộ lọc Tổng quan được nhớ riêng cho từng email; không lưu thêm số liệu quảng cáo vào localStorage.
+- Browser điều phối các bước khi mở ứng dụng; đóng ứng dụng sẽ ngừng gửi bước tiếp theo. Cron hiện có dùng cùng engine để đồng bộ khi ứng dụng đóng, nếu đã cấu hình scheduler và `CRON_SECRET`. Không thêm dịch vụ hàng đợi, bảng hoặc migration SQL cho thay đổi này.
+
+### Bộ lọc, chỉ số và báo cáo
+
 - Bộ lọc BM → tài khoản → chiến dịch tự reset cấp con; khoảng hôm nay, hôm qua, 3/7/14 ngày thay đổi KPI, biểu đồ, bảng và phân tích. Mặc định 7 ngày.
 - Bộ lọc trạng thái chiến dịch mặc định **Tất cả trạng thái**, gồm Đang chạy, Tạm dừng, Đã lưu trữ, Đã xóa và các trạng thái khác có trong dữ liệu. Dùng trạng thái hiện tại đã đồng bộ từ Meta; áp dụng cho lựa chọn chiến dịch, KPI, biểu đồ, bảng và phân tích. Đổi trạng thái bỏ chọn chiến dịch cụ thể và trở về trang 1.
 - Cả ba bảng chiến dịch, tài khoản quảng cáo và báo cáo theo ngày có phân trang **20 / 50 / 100 dòng**, mặc định 20. Đổi bộ lọc, tìm kiếm, sắp xếp, khách hàng, tháng hoặc số dòng sẽ về trang 1; dữ liệu giảm tự chuyển về trang hợp lệ. KPI, tổng tháng và file xuất vẫn dùng toàn bộ dữ liệu trong phạm vi đã chọn.
@@ -214,31 +225,31 @@ Timer trình duyệt 30 phút gọi sync khi admin đang xem báo cáo; client c
 
 Các endpoint ghi cần cookie hợp lệ và Origin bằng `NEXT_PUBLIC_SITE_URL`, trừ callback OAuth dùng `state`.
 
-| Endpoint                                    | Quyền                     | Chức năng                                                                                                                           |
-| ------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/auth/login`                      | Public                    | `{email,password}` → tạo phiên sau xác thực Supabase                                                                                |
-| `GET /api/auth/session`                     | Đã đăng nhập              | Đọc phiên không gia hạn                                                                                                             |
-| `POST /api/auth/session`                    | Đã đăng nhập              | Gia hạn sau hoạt động                                                                                                               |
-| `POST /api/auth/logout`                     | Đã đăng nhập              | Thu hồi phiên                                                                                                                       |
-| `POST /api/connect`                         | Admin                     | Dùng env token; hỗ trợ `{token}` và xác minh `/me`, không tin `fbUserId` client                                                     |
-| `GET /api/accounts`                         | Admin                     | Danh sách account đang tracked                                                                                                      |
-| `PATCH /api/accounts`                       | Admin                     | `{id,is_tracked}`                                                                                                                   |
-| `DELETE /api/accounts`                      | Admin                     | Ngắt kết nối; xóa account/BM/camp/insights/link gán, giữ client và cấu hình report                                                  |
-| `GET /api/data?month=YYYY-MM`               | Đã đăng nhập              | Dữ liệu đúng phạm vi user; không trả encrypted token                                                                                |
-| `GET/POST/PUT /api/clients`                 | GET theo quyền; ghi Admin | Quản lý folder và gán tài khoản                                                                                                     |
-| `POST /api/reports`                         | Admin                     | `{client_id,month,config}` upsert cấu hình                                                                                          |
-| `GET/PUT /api/preferences/campaign-columns` | Admin                     | Đọc/lưu cột, tên, thứ tự và công thức trong workspace của phiên đăng nhập                                                           |
-| `POST /api/meta/insights`                   | Admin                     | Đọc chỉ số toàn kỳ `{account_id,since,until,fields,campaign_id?}`; chỉ tài khoản đang theo dõi trong workspace, VND; tối đa 31 ngày |
-| `POST /api/sync`                            | Admin                     | `{month?,client_id?}`                                                                                                               |
-| `GET /api/cron/sync`                        | Bearer secret             | Đồng bộ tracked accounts; 207 nếu có account lỗi/bị hoãn                                                                            |
-| `GET /api/facebook/start`                   | Admin                     | Bắt đầu OAuth popup                                                                                                                 |
-| `GET /api/facebook/callback`                | Admin + OAuth state       | Hoàn tất kết nối                                                                                                                    |
-| `GET /api/facebook/connection`              | Admin                     | Xác minh danh tính các nguồn token đang dùng cho tài khoản đã lưu                                                                   |
-| `GET /api/ai/settings`                      | Admin                     | Cấu hình kết nối và thư viện prompt, không trả khóa                                                                                 |
-| `POST/DELETE /api/ai/connection`            | Admin                     | Xác minh/lưu model và khóa mã hóa; ngắt kết nối                                                                                     |
-| `POST/PATCH/DELETE /api/ai/prompts`         | Admin                     | Lưu prompt, chọn mặc định, xóa                                                                                                      |
-| `POST /api/ai/analyze`                      | Admin                     | Lấy lại dữ liệu theo workspace/bộ lọc, gọi Meta AI với prompt đã lưu                                                                |
-| `GET /api/status`                           | Public                    | Chỉ trạng thái có/chưa có env, không lộ giá trị                                                                                     |
+| Endpoint                                    | Quyền                     | Chức năng                                                                                                                                                                  |
+| ------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/auth/login`                      | Public                    | `{email,password}` → tạo phiên sau xác thực Supabase                                                                                                                       |
+| `GET /api/auth/session`                     | Đã đăng nhập              | Đọc phiên không gia hạn                                                                                                                                                    |
+| `POST /api/auth/session`                    | Đã đăng nhập              | Gia hạn sau hoạt động                                                                                                                                                      |
+| `POST /api/auth/logout`                     | Đã đăng nhập              | Thu hồi phiên                                                                                                                                                              |
+| `POST /api/connect`                         | Admin                     | Dùng env token; hỗ trợ `{token}` và xác minh `/me`, không tin `fbUserId` client                                                                                            |
+| `GET /api/accounts`                         | Admin                     | Danh sách account đang tracked                                                                                                                                             |
+| `PATCH /api/accounts`                       | Admin                     | `{id,is_tracked}`                                                                                                                                                          |
+| `DELETE /api/accounts`                      | Admin                     | Ngắt kết nối; xóa account/BM/camp/insights/link gán, giữ client và cấu hình report                                                                                         |
+| `GET /api/data`                             | Đã đăng nhập              | `view=dashboard/accounts/reports`, bộ lọc, `period`, `month`, `include_meta=0`; phạm vi được kiểm tra trên server. Giữ request cũ không có view.                           |
+| `GET/POST/PUT /api/clients`                 | GET theo quyền; ghi Admin | Quản lý folder và gán tài khoản                                                                                                                                            |
+| `POST /api/reports`                         | Admin                     | `{client_id,month,config}` upsert cấu hình                                                                                                                                 |
+| `GET/PUT /api/preferences/campaign-columns` | Admin                     | Đọc/lưu cột, tên, thứ tự và công thức trong workspace của phiên đăng nhập                                                                                                  |
+| `POST /api/meta/insights`                   | Admin                     | Đọc chỉ số toàn kỳ `{account_id,since,until,fields,campaign_id?}`; chỉ tài khoản đang theo dõi trong workspace, VND; tối đa 31 ngày                                        |
+| `POST /api/sync`                            | Admin                     | `action=plan` tạo lượt, `action=step` tiếp tục bằng token ký server; hỗ trợ `account_ids`, `client_id`, `month`, ưu tiên/freshness. Request cũ vẫn được xử lý có giới hạn. |
+| `GET /api/cron/sync`                        | Bearer secret             | Đồng bộ tracked accounts; 207 nếu có account lỗi/bị hoãn                                                                                                                   |
+| `GET /api/facebook/start`                   | Admin                     | Bắt đầu OAuth popup                                                                                                                                                        |
+| `GET /api/facebook/callback`                | Admin + OAuth state       | Hoàn tất kết nối                                                                                                                                                           |
+| `GET /api/facebook/connection`              | Admin                     | Xác minh danh tính các nguồn token đang dùng cho tài khoản đã lưu                                                                                                          |
+| `GET /api/ai/settings`                      | Admin                     | Cấu hình kết nối và thư viện prompt, không trả khóa                                                                                                                        |
+| `POST/DELETE /api/ai/connection`            | Admin                     | Xác minh/lưu model và khóa mã hóa; ngắt kết nối                                                                                                                            |
+| `POST/PATCH/DELETE /api/ai/prompts`         | Admin                     | Lưu prompt, chọn mặc định, xóa                                                                                                                                             |
+| `POST /api/ai/analyze`                      | Admin                     | Lấy lại dữ liệu theo workspace/bộ lọc, gọi Meta AI với prompt đã lưu                                                                                                       |
+| `GET /api/status`                           | Public                    | Chỉ trạng thái có/chưa có env, không lộ giá trị                                                                                                                            |
 
 ## Kiểm thử
 

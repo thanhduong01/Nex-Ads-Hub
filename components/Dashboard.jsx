@@ -99,7 +99,17 @@ function CampaignCell({ column, row }) {
     </span>
   );
 }
-export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI, demo }) {
+export default function Dashboard({
+  data,
+  toast,
+  sync,
+  busy,
+  goReports,
+  goMetaAI,
+  demo,
+  filters,
+  onFiltersChange,
+}) {
   const {
     config: columnConfig,
     loading: columnsLoading,
@@ -108,12 +118,10 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
   } = useCampaignColumns(demo);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const visibleColumns = campaignColumnDefinitions(columnConfig);
-  const [bm, setBm] = useState('all'),
-    [account, setAccount] = useState('all'),
-    [camp, setCamp] = useState('all'),
-    [status, setStatus] = useState('all'),
-    [period, setPeriod] = useState('7'),
-    [query, setQuery] = useState(''),
+  const { bm, account, camp, status, period } = filters;
+  const setCamp = (value) => onFiltersChange((previous) => ({ ...previous, camp: value }));
+  const setPeriod = (value) => onFiltersChange((previous) => ({ ...previous, period: value }));
+  const [query, setQuery] = useState(''),
     [sort, setSort] = useState({ key: 'spend', dir: -1 });
   const [aiBusy, setAIBusy] = useState(false),
     [analysisRequest, setAnalysisRequest] = useState(0);
@@ -171,17 +179,13 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
     { name: 'Tỷ lệ nhấp · CTR', key: 'ctr', type: 'percent', icon: MousePointer2 },
   ];
   function pickBm(v) {
-    setBm(v);
-    setAccount('all');
-    setCamp('all');
+    onFiltersChange((previous) => ({ ...previous, bm: v, account: 'all', camp: 'all' }));
   }
   function pickAccount(v) {
-    setAccount(v);
-    setCamp('all');
+    onFiltersChange((previous) => ({ ...previous, account: v, camp: 'all' }));
   }
   function pickStatus(value) {
-    setStatus(value);
-    setCamp('all');
+    onFiltersChange((previous) => ({ ...previous, status: value, camp: 'all' }));
   }
   return (
     <>
@@ -194,7 +198,7 @@ export default function Dashboard({ data, toast, sync, busy, goReports, goMetaAI
           <p>Mọi chiến dịch, một góc nhìn. Quyết định từ dữ liệu của bạn.</p>
         </div>
         <div className="heading-actions">
-          <Button onClick={sync} busy={busy}>
+          <Button onClick={() => sync({ account_ids: accounts.map((a) => a.id) })} busy={busy}>
             <RefreshCw size={15} />
             Đồng bộ dữ liệu
           </Button>

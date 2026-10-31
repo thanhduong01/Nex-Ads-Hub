@@ -35,6 +35,9 @@ import { Button, Badge, Modal } from './ui.jsx';
 import { createDemo } from '../lib/demo.js';
 import { SEVEN_DAYS, todayISO } from '../lib/metrics.js';
 import { api } from '../lib/api.js';
+import { runSync, mergeSyncPatch, DEFAULT_DASHBOARD_FILTERS } from '../lib/syncClient.js';
+import { dashboardScope } from '../lib/dashboardFilters.js';
+import SyncNotice from './SyncNotice.jsx';
 const emptyData = {
   bms: [],
   accounts: [],
@@ -319,6 +322,8 @@ export default function App() {
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
     [syncing, setSyncing] = useState(false),
+    [syncResult, setSyncResult] = useState(null),
+    [filters, setFilters] = useState(DEFAULT_DASHBOARD_FILTERS),
     [notifications, setNotifications] = useState([]),
     [expired, setExpired] = useState(''),
     [collapsed, setCollapsed] = useState(false),
@@ -330,9 +335,16 @@ export default function App() {
     busyRef = useRef(false),
     dirty = useRef(false),
     requestId = useRef(0),
-    lastActivitySync = useRef(0);
+    lastActivitySync = useRef(0),
+    syncRunRef = useRef(null),
+    metadataReady = useRef(false),
+    loadTask = useRef(null),
+    commits = useRef([]),
+    screenRef = useRef(null),
+    lastResume = useRef(0);
   sessionRef.current = session;
   dataRef.current = data;
+  screenRef.current = { page, month, filters };
   const demo = Boolean(session?.demo);
   const toast = useCallback((message, type = 'success') => {
     const id = Date.now() + Math.random();
@@ -340,11 +352,30 @@ export default function App() {
     setTimeout(() => setNotifications((v) => v.filter((t) => t.id !== id)), 5500);
   }, []);
   const remember = (s) => {
+    if (sessionRef.current?.email !== s.email) {
+      metadataReady.current = false;
+      commits.current = [];
+      const saved = safeRead(`ads_hub_dashboard:${s.email}`);
+      setFilters({
+        ...DEFAULT_DASHBOARD_FILTERS,
+        ...(saved &&
+        typeof saved === 'object' &&
+        Object.values(saved).every((v) => typeof v === 'string' && /^[-_a-zA-Z0-9]{1,100}$/.test(v))
+          ? saved
+          : {}),
+      });
+    }
     setSession(s);
     sessionRef.current = s;
     safeWrite(STORAGE, s);
   };
   function clear(message = '') {
+    cancelSync();
+    loadTask.current?.controller.abort();
+    loadTask.current = null;
+    metadataReady.current = false;
+    commits.current = [];
+    setSyncResult(null);
     requestId.current++;
     setSession(null);
     sessionRef.current = null;
@@ -359,38 +390,74 @@ export default function App() {
     if (e.status === 401) clear(e.message);
     else toast(e.message, 'error');
   };
-  async function refresh(silent = false) {
+  async function refresh(silent = false, { includeMeta = false } = {}) {
     const s = sessionRef.current;
     if (!s) return;
+    const screen = screenRef.current;
+    const view = ['dashboard', 'accounts', 'reports'].includes(screen.page)
+      ? screen.page
+      : s.role === 'client'
+        ? 'reports'
+        : 'dashboard';
+    const params = new URLSearchParams({
+      view,
+      include_meta: includeMeta || !metadataReady.current ? '1' : '0',
+    });
+    if (view === 'reports') params.set('month', screen.month);
+    if (view === 'dashboard')
+      for (const [name, value] of Object.entries(screen.filters)) params.set(name, value);
+    const query = params.toString();
+    if (loadTask.current?.key === query) return loadTask.current.promise;
+    loadTask.current?.controller.abort();
+    const controller = new AbortController();
     const request = ++requestId.current;
+    const started = Date.now();
     if (!silent) setLoading(true);
-    try {
-      let next;
-      if (s.demo) {
-        const stored = safeRead(DEMO) || createDemo(month);
-        next =
-          page === 'reports'
-            ? {
-                ...stored,
-                rows: createDemo(month).rows.filter((r) =>
-                  stored.campaigns.some((c) => c.id === r.campaign_id),
-                ),
-              }
-            : stored;
-      } else next = await api(`/api/data${page === 'reports' ? `?month=${month}` : ''}`);
-      if (request === requestId.current) {
-        setData(next);
-        setLoadError('');
-        if (!s.demo) safeWrite(CACHE, { email: s.email, bms: next.bms, accounts: next.accounts });
+    const task = (async () => {
+      await Promise.resolve();
+      try {
+        let next;
+        if (s.demo) {
+          const stored = safeRead(DEMO) || createDemo(screen.month);
+          next =
+            view === 'reports'
+              ? {
+                  ...stored,
+                  rows: createDemo(screen.month).rows.filter((r) =>
+                    stored.campaigns.some((c) => c.id === r.campaign_id),
+                  ),
+                }
+              : stored;
+        } else {
+          const response = await api(`/api/data?${query}`, {
+            signal: controller.signal,
+            timeoutMs: 28000,
+          });
+          next = { ...dataRef.current, ...response };
+          if (response.campaigns) metadataReady.current = true;
+          for (const update of commits.current.filter((c) => c.received >= started))
+            next = mergeSyncPatch(next, update.patch);
+        }
+        if (request === requestId.current) {
+          dataRef.current = next;
+          setData(next);
+          setLoadError('');
+          if (!s.demo) safeWrite(CACHE, { email: s.email, bms: next.bms, accounts: next.accounts });
+        }
+      } catch (e) {
+        if (e.code !== 'REQUEST_CANCELLED' && request === requestId.current) {
+          setLoadError(e.message);
+          handleError(e);
+        }
+      } finally {
+        if (request === requestId.current) {
+          setLoading(false);
+          loadTask.current = null;
+        }
       }
-    } catch (e) {
-      if (request === requestId.current) {
-        setLoadError(e.message);
-        handleError(e);
-      }
-    } finally {
-      if (request === requestId.current) setLoading(false);
-    }
+    })();
+    loadTask.current = { key: query, controller, promise: task };
+    return task;
   }
   useEffect(() => {
     api('/api/status')
@@ -433,8 +500,44 @@ export default function App() {
     start();
   }, []);
   useEffect(() => {
-    if (session) refresh();
-  }, [session?.email, session?.demo, page, month]);
+    if (session && ['dashboard', 'accounts', 'reports'].includes(page)) refresh();
+  }, [
+    session?.email,
+    session?.demo,
+    page,
+    month,
+    filters.bm,
+    filters.account,
+    filters.camp,
+    filters.status,
+    filters.period,
+  ]);
+  useEffect(() => {
+    if (!session || session.demo) return;
+    const resume = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (Date.now() - lastResume.current < 60000) return;
+      lastResume.current = Date.now();
+      const run = syncRunRef.current;
+      if (run && Date.now() - run.lastProgress > 90000) cancelSync();
+      void refresh(true);
+      if (sessionRef.current?.role === 'admin') void sync({ automatic: true }, true);
+    };
+    // Start Meta refresh as soon as server authentication succeeds; saved data loads concurrently.
+    if (session.role === 'admin') void sync({ automatic: true }, true);
+    lastResume.current = Date.now();
+    window.addEventListener('focus', resume);
+    window.addEventListener('online', resume);
+    document.addEventListener('visibilitychange', resume);
+    const interval = setInterval(resume, 15 * 60000);
+    return () => {
+      window.removeEventListener('focus', resume);
+      window.removeEventListener('online', resume);
+      document.removeEventListener('visibilitychange', resume);
+      clearInterval(interval);
+      cancelSync();
+    };
+  }, [session?.email, session?.demo]);
   useEffect(() => {
     if (!session) return;
     const expire = () => {
@@ -552,38 +655,121 @@ export default function App() {
     safeWrite(DEMO, next);
     safeWrite(CACHE, { email: session.email, bms: next.bms, accounts: next.accounts });
   }
+  function updateFilters(update) {
+    setFilters((previous) => {
+      const next = typeof update === 'function' ? update(previous) : { ...previous, ...update };
+      if (sessionRef.current) safeWrite(`ads_hub_dashboard:${sessionRef.current.email}`, next);
+      return next;
+    });
+  }
+  function cancelSync(announce = false) {
+    const run = syncRunRef.current;
+    if (!run) return;
+    syncRunRef.current = null;
+    run.controller.abort();
+    busyRef.current = false;
+    setBusy(false);
+    setSyncing(false);
+    if (announce) toast('Đã dừng. Dữ liệu của các lượt đã hoàn tất được giữ lại.');
+  }
   async function sync(options = {}, silent = false) {
-    if (busyRef.current) return;
+    const current = sessionRef.current;
+    if (!current || busyRef.current) return;
+    const controller = new AbortController();
+    const run = { controller, email: current.email, lastProgress: Date.now() };
+    syncRunRef.current = run;
     busyRef.current = true;
     setBusy(true);
-    setSyncing(true);
+    setSyncResult(null);
+    setSyncing({ phase: 'planning', completedSteps: 0, totalSteps: 0, totalAccounts: 0 });
+    const watchdog = setTimeout(() => {
+      run.timedOut = true;
+      controller.abort();
+    }, 10 * 60000);
     try {
-      if (demo) {
+      if (current.demo) {
         mutateDemo((d) => ({
           ...d,
           accounts: d.accounts.map((a) => ({ ...a, last_synced_at: new Date().toISOString() })),
         }));
         if (!silent) toast('Đã làm mới dữ liệu mẫu.');
-      } else {
-        const r = await api('/api/sync', {
-          method: 'POST',
-          body: JSON.stringify(options),
-          timeoutMs: 270000,
-        });
-        await refresh(true);
-        if (r.failed)
-          toast(
-            `${r.synced} tài khoản thành công, ${r.failed} chưa đồng bộ được. Kiểm tra trang Tài khoản.`,
-            'error',
-          );
-        else if (!silent) toast(`Đã đồng bộ ${r.synced} tài khoản.`);
+        return;
       }
-    } catch (e) {
-      handleError(e);
-    } finally {
+      const screen = screenRef.current;
+      const cached = safeRead(CACHE);
+      const knownAccounts = dataRef.current.accounts.length
+        ? dataRef.current.accounts
+        : cached?.email === current.email
+          ? cached.accounts
+          : [];
+      const priority =
+        screen.filters.account !== 'all'
+          ? [screen.filters.account]
+          : dashboardScope(
+              { ...dataRef.current, accounts: knownAccounts || [] },
+              screen.filters.bm,
+              screen.filters.account,
+            ).accounts.map((a) => a.id);
+      const result = await runSync(
+        { ...options, force: !options.automatic, priority_account_ids: priority },
+        {
+          signal: controller.signal,
+          onProgress: (progress) => {
+            if (syncRunRef.current === run) {
+              run.lastProgress = Date.now();
+              setSyncing(progress);
+            }
+          },
+          onCommit: (patch) => {
+            if (syncRunRef.current !== run || sessionRef.current?.email !== current.email) return;
+            commits.current.push({ received: Date.now(), patch });
+            if (commits.current.length > 500) commits.current.shift();
+            const next = mergeSyncPatch(dataRef.current, patch);
+            dataRef.current = next;
+            setData(next);
+          },
+        },
+      );
+      if (syncRunRef.current !== run) return;
+      setSyncResult(result);
+      // Release the sync UI before the independent data reload; it has its own timeout/error state.
+      syncRunRef.current = null;
       busyRef.current = false;
       setBusy(false);
       setSyncing(false);
+      void refresh(true, { includeMeta: result.metadataChanged });
+      if (result.failed)
+        toast(
+          `${result.synced} tài khoản hoàn tất, ${result.failed} chưa hoàn tất. Xem chi tiết để thử lại.`,
+          'error',
+        );
+      else if (!silent)
+        toast(
+          result.synced
+            ? `Đã đồng bộ ${result.synced} tài khoản.`
+            : result.locked
+              ? 'Tài khoản đang đồng bộ ở phiên khác.'
+              : result.fresh
+                ? 'Dữ liệu đã được cập nhật gần đây.'
+                : 'Không có tài khoản hoặc ngày phù hợp để đồng bộ.',
+        );
+    } catch (error) {
+      if (syncRunRef.current === run) {
+        if (run.timedOut)
+          toast(
+            'Đã dừng do quá thời gian. Các phần đã hoàn tất được giữ lại; hãy thu hẹp tài khoản và thử lại.',
+            'error',
+          );
+        else if (error.code !== 'REQUEST_CANCELLED') handleError(error);
+      }
+    } finally {
+      clearTimeout(watchdog);
+      if (syncRunRef.current === run) {
+        syncRunRef.current = null;
+        busyRef.current = false;
+        setBusy(false);
+        setSyncing(false);
+      }
     }
   }
   async function connect() {
@@ -598,7 +784,7 @@ export default function App() {
     }
     const r = await api('/api/connect', { method: 'POST', body: '{}', timeoutMs: 75000 });
     remember({ ...session, fb_user_id: r.fb_user_id });
-    await refresh();
+    await refresh(false, { includeMeta: true });
     toast(`Đã kết nối ${r.bms} BM và ${r.accounts} tài khoản.`);
   }
   async function oauth() {
@@ -625,7 +811,7 @@ export default function App() {
       window.removeEventListener('message', listener);
       clearInterval(timer);
       if (event.data.status === 'connected') {
-        await refresh();
+        await refresh(false, { includeMeta: true });
         toast('Đã kết nối Facebook.');
         await sync();
       } else toast(event.data.message || 'Kết nối bị hủy.', 'error');
@@ -645,7 +831,7 @@ export default function App() {
         mutateDemo((d) => ({ ...d, bms: [], accounts: [], campaigns: [], rows: [], links: [] }));
       else {
         await api('/api/accounts', { method: 'DELETE' });
-        await refresh();
+        await refresh(false, { includeMeta: true });
       }
       safeRemove(CACHE);
       toast('Đã ngắt kết nối Facebook.');
@@ -692,7 +878,7 @@ export default function App() {
         method: 'POST',
         body: JSON.stringify({ client_id, month: reportMonth, config }),
       });
-      await refresh(true);
+      await refresh(true, { includeMeta: true });
     }
   }
   async function saveClient(input) {
@@ -720,7 +906,7 @@ export default function App() {
       }));
     } else {
       await api('/api/clients', { method: input.id ? 'PUT' : 'POST', body: JSON.stringify(input) });
-      await refresh(true);
+      await refresh(true, { includeMeta: true });
     }
     toast('Đã lưu khách hàng.');
   }
@@ -854,15 +1040,46 @@ export default function App() {
           </div>
         </header>
         <main className={loading ? 'loading-data' : ''}>
-          {syncing && (
-            <div className="notice" role="status">
-              <RefreshCw size={16} className="spin" />
-              <span>
-                Đang đồng bộ chi tiêu từ Meta. Bạn có thể tiếp tục xem tài khoản và báo cáo; dữ liệu
-                sẽ cập nhật khi hoàn tất.
-              </span>
-            </div>
-          )}
+          {syncing && <SyncNotice progress={syncing} onCancel={() => cancelSync(true)} />}
+          {!syncing &&
+            syncResult &&
+            (syncResult.failed > 0 || syncResult.locked > 0 || syncResult.warnings.length > 0) && (
+              <div className="notice error sync-summary" role="status">
+                <div>
+                  <strong>
+                    {syncResult.failed
+                      ? `${syncResult.failed} tài khoản chưa hoàn tất đồng bộ.`
+                      : syncResult.locked
+                        ? `${syncResult.locked} tài khoản đang được xử lý ở phiên khác.`
+                        : 'Một số trạng thái chiến dịch chưa xác minh được.'}
+                  </strong>
+                  <details>
+                    <summary>Xem chi tiết</summary>
+                    <ul>
+                      {syncResult.failures.map((item) => (
+                        <li key={item.id}>
+                          {item.name}: {item.error}
+                        </li>
+                      ))}
+                      {syncResult.warnings.map((message, index) => (
+                        <li key={index}>{message}</li>
+                      ))}
+                    </ul>
+                  </details>
+                </div>
+                <Button
+                  onClick={() =>
+                    sync(
+                      syncResult.failures.length
+                        ? { account_ids: syncResult.failures.map((item) => item.id) }
+                        : {},
+                    )
+                  }
+                >
+                  Thử lại
+                </Button>
+              </div>
+            )}
           {loadError && (
             <div className="notice error">
               <AlertCircle size={16} />
@@ -875,11 +1092,13 @@ export default function App() {
             <Dashboard
               data={data}
               toast={toast}
-              sync={() => sync()}
+              sync={sync}
               busy={busy}
               goReports={() => setPage('reports')}
               goMetaAI={() => setPage('meta-ai')}
               demo={demo}
+              filters={filters}
+              onFiltersChange={updateFilters}
             />
           )}{' '}
           {page === 'accounts' && (
